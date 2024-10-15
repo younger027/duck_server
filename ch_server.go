@@ -9,9 +9,6 @@ import (
 	"database/sql/driver"
 	"encoding/base64"
 	"fmt"
-	"github.com/marcboeker/go-duckdb"
-	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/pbkdf2"
 	"io"
 	"net/http"
 	"regexp"
@@ -19,6 +16,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/marcboeker/go-duckdb"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 const authTTL = 60
@@ -35,6 +36,12 @@ type ChServer struct {
 	pgServer  *PgServer
 	authCache sync.Map
 }
+
+/*
+testInsertFormatRegexp 用于匹配带format关键字的INSERT语句。
+testInsertValuesQueryRegexp 用于匹配包含VALUES的INSERT语句。
+testInsertRegexp 用于匹配单独的INSERT关键字。
+*/
 
 var testInsertFormatRegexp = regexp.MustCompile(`(?i)^\s*INSERT\s+INTO.*?format\s+\S+[\s;]*$`)
 var testInsertValuesQueryRegexp = regexp.MustCompile(`(?i)^\s*INSERT\s+INTO.*VALUES.*[\s;]*$`)
@@ -102,6 +109,15 @@ func (c *ChServer) ServeHTTP(wr http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	fmt.Println("uri ", r.RequestURI)
+	if r.RequestURI == "/record" {
+		businessID := r.Header.Get("business_id")
+		d, _ := io.ReadAll(r.Body)
+		c.MustExecuteQuery(r.Context(), businessID, string(d), wr)
+		return
+	}
+
 	if r.Method == http.MethodGet {
 		query := r.URL.Query().Get("query")
 		d, _ := io.ReadAll(r.Body)
@@ -126,6 +142,8 @@ func (c *ChServer) ServeHTTP(wr http.ResponseWriter, r *http.Request) {
 				c.InsertFormat(r.Context(), query, rd, wr)
 				return
 			}
+
+			//处理其他情况，不是插入语句，或者是插入insert values类似sql
 			if query != "" && (!testInsertRegexp.MatchString(query) || testInsertValuesQueryRegexp.MatchString(query)) {
 				d, _ := io.ReadAll(rd)
 				query += string(d)
@@ -233,9 +251,56 @@ func (c *ChServer) ExecuteQuery(ctx context.Context, query string, wr http.Respo
 	wr.WriteHeader(200)
 }
 
-var insertFormatRegexp = regexp.MustCompile(`(?i)^\s*INSERT\s+INTO(.*?)format\s+(\S+)[\s;]*$`)
+func (c *ChServer) MustExecuteQuery(ctx context.Context, tableName, query string, wr http.ResponseWriter) {
+	if tableName == "" {
+		wr.WriteHeader(400)
+		fmt.Fprint(wr, "businessID is empty on http header")
+		return
+	}
+	retData, insertValueSql, err := ParseJSONStrToSQLField(tableName, query)
+	if err != nil {
+		wr.WriteHeader(400)
+		fmt.Fprint(wr, err.Error())
+		return
+	}
+
+	for {
+		_, err = c.conn.ExecContext(ctx, insertValueSql)
+		if err == nil {
+			wr.WriteHeader(200)
+			return
+		}
+
+		fmt.Println("exec insert sql err:", err.Error())
+
+		tableName, field, _ := ParseSqlErrType(err.Error())
+		if tableName == "" && field == "" {
+			wr.WriteHeader(500)
+			fmt.Fprintf(wr, "parse sql err msg failed for get table and field failed: %s", err.Error())
+			return
+		}
+
+		createSql, err := ProduceCreateSql(retData, tableName, field)
+		if err != nil {
+			wr.WriteHeader(500)
+			fmt.Fprintf(wr, "produce create sql failed: %s", err.Error())
+			return
+		}
+
+		fmt.Println("new sql ---", createSql)
+		_, err = c.conn.ExecContext(ctx, createSql)
+		if err != nil {
+			fmt.Println("exec create sql err:", err.Error())
+			wr.WriteHeader(500)
+			return
+		}
+
+	}
+
+}
 
 func (c *ChServer) InsertFormat(ctx context.Context, query string, rd *bufio.Reader, wr http.ResponseWriter) {
+	var insertFormatRegexp = regexp.MustCompile(`(?i)^\s*INSERT\s+INTO(.*?)format\s+(\S+)[\s;]*$`)
 	groups := insertFormatRegexp.FindStringSubmatch(query)
 	if len(groups) < 3 {
 		wr.WriteHeader(400)

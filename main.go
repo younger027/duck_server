@@ -2,8 +2,9 @@ package main
 
 import (
 	"flag"
-	"github.com/sirupsen/logrus"
 	_ "net/http/pprof"
+
+	"github.com/sirupsen/logrus"
 )
 
 const VERSION = "0.1.0"
@@ -16,9 +17,9 @@ func main() {
 	pgListen := flag.String("pg_listen", ":5432", "Postgres listen address")
 	chListen := flag.String("ch_listen", ":8123", "Clickhouse listen address")
 	dbPath := flag.String("db_path", "./test.db", "Path to the database file")
-	logLevel := flag.String("log_level", "info", "Log level")
+	logLevel := flag.String("log_level", "trace", "Log level")
 	hack := flag.Bool("hack", true, "hack")
-	auth := flag.Bool("auth", true, "enable auth")
+	auth := flag.Bool("auth", false, "enable auth")
 	flag.Parse()
 	switch *logLevel {
 	case "trace":
@@ -33,7 +34,8 @@ func main() {
 		logrus.SetLevel(logrus.ErrorLevel)
 	}
 	server := PgServer{}
-	err := server.Start(serverOptions{
+	defer server.CloseConn()
+	server.Start(serverOptions{
 		DbPath:  *dbPath,
 		Listen:  *pgListen,
 		UseHack: *hack,
@@ -43,5 +45,4 @@ func main() {
 		},
 		Auth: *auth,
 	})
-	logrus.Fatal(err)
 }
