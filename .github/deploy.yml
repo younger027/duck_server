@@ -1,0 +1,46 @@
+name: Build && Deploy
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  DOCKER_USER: "dramatify"
+  REPO_NAME: "harbor.dramatify.tv"
+  PROJECT_NAME: "ducker_server"
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Docker Login
+      run: | # log into docker hub account
+        docker login https://$REPO_NAME -u $DOCKER_USER -p ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Get Short Commit Sha
+      id: date
+      run: |
+        echo "sha_short=$(git rev-parse --short "$GITHUB_SHA")" >> $GITHUB_ENV
+
+    - name: Build the Docker image
+      run: |
+        docker build . --file Dockerfile --tag $REPO_NAME/lib/$PROJECT_NAME:${{ github.ref_name }}-${{ env.sha_short }}
+        docker tag $REPO_NAME/lib/$PROJECT_NAME:${{ github.ref_name }}-${{ env.sha_short }} $REPO_NAME/lib/$PROJECT_NAME:latest
+
+    - name: Docker Push
+      run: |
+        docker push $REPO_NAME/lib/$PROJECT_NAME:${{ github.ref_name }}-${{ env.sha_short }}
+        docker push $REPO_NAME/lib/$PROJECT_NAME:latest
+
+    # - name: Deploy to Kubernetes
+    #   run: |
+    #     curl -X PUT \
+    #     -H "content-type: application/json" \
+    #     -H "Cookie: KuboardUsername=admin; KuboardAccessKey=${{ secrets.KUBOARD_ACCESS_TOKEN }}" \
+    #     -d '{"kind":"deployments","namespace":"apps","name":"ai-enigma-backend","images":{"${{ env.REPO_NAME }}/lib/${{ env.PROJECT_NAME}}":"${{ env.REPO_NAME }}/lib/${{ env.PROJECT_NAME}}:${{ github.ref_name }}-${{ env.sha_short }}"}}' \
+    #     "${{ secrets.KUBOARD_URL }}"
