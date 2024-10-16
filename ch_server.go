@@ -23,6 +23,7 @@ import (
 )
 
 const authTTL = 60
+const AuthToken = "O1xCJhBIvkaqEc3R"
 
 type authItem struct {
 	user     string
@@ -111,7 +112,14 @@ func (c *ChServer) ServeHTTP(wr http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Println("uri ", r.RequestURI)
-	if r.RequestURI == "/record" {
+	//use simple auth check
+	token := r.Header.Get("token")
+	if token != AuthToken {
+		wr.WriteHeader(401)
+		return
+	}
+
+	if r.RequestURI == "/report" {
 		businessID := r.Header.Get("business_id")
 		d, _ := io.ReadAll(r.Body)
 		c.MustExecuteQuery(r.Context(), businessID, string(d), wr)

@@ -8,13 +8,14 @@ import (
 	"database/sql/driver"
 	"encoding/csv"
 	"fmt"
-	"github.com/marcboeker/go-duckdb"
-	"github.com/sirupsen/logrus"
 	"io"
 	"net"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/marcboeker/go-duckdb"
+	"github.com/sirupsen/logrus"
 )
 
 var parameterStatus = map[string]string{
