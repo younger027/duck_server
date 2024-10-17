@@ -71,6 +71,7 @@ from information_schema.columns;`,
 		`create view if not exists system.functions as
 select proname as name, prokind = 'a' as is_aggregate
 from pg_proc;`,
+		`SET memory_limit = '500MB';`,
 	}
 	for _, stmt := range statements {
 		if _, err := execer.ExecContext(context.Background(), stmt, nil); err != nil {
